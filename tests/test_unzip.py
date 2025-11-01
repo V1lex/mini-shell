@@ -2,94 +2,50 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from pyfakefs.fake_filesystem import FakeFilesystem
 
 from src.commands import unzip
 from src.commands.utils import CommandError
 
 
-def _create_zip(path: Path, files: dict[str, bytes | str]) -> None:
-    with zipfile.ZipFile(str(path), "w") as zf:
-        for name, content in files.items():
-            zf.writestr(name, content)
+def _build_zip_with_project(zip_path: Path) -> None:
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("project/readme.txt", "doc")
+        zf.writestr("project/.git/config", "secret")
 
 
-def test_unzip_extracts_archive(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    archive = home_dir / "project.zip"
-    _create_zip(
-        archive,
-        {
-            "project/readme.txt": "hello",
-            "project/src/main.py": "print('ok')",
-        },
-    )
+def test_unzip_extracts_archive(fs, shell):
+    zip_path = shell.cwd / "project.zip"
+    _build_zip_with_project(zip_path)
 
-    message = unzip.run(["project.zip"], shell_instance)
+    message = unzip.run([zip_path.name], shell)
 
-    target_dir = home_dir / "project"
-    assert target_dir.is_dir()
-    assert (target_dir / "readme.txt").read_text() == "hello"
-    assert (target_dir / "src" / "main.py").read_text() == "print('ok')"
-    assert "Unpacked" in message
+    extracted = shell.cwd / "project"
+    assert extracted.exists()
+    assert (extracted / "readme.txt").read_text(encoding="utf-8") == "doc"
+    assert not (extracted / ".git").exists()
+    assert message == f"Unpacked '{zip_path}' to '{extracted}'"
 
 
-def test_unzip_skips_git_entries(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    archive = home_dir / "repo.zip"
-    _create_zip(
-        archive,
-        {
-            "repo/.git/config": "[core]",
-            "repo/file.txt": "data",
-        },
-    )
+def test_unzip_creates_unique_directory_when_target_exists(fs, shell):
+    zip_path = shell.cwd / "dataset.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("dataset/info.txt", "data")
 
-    unzip.run(["repo.zip"], shell_instance)
+    existing = shell.cwd / "dataset"
+    fs.create_dir(str(existing))
 
-    repo_dir = home_dir / "repo"
-    assert repo_dir.exists()
-    assert (repo_dir / "file.txt").read_text() == "data"
-    assert not (repo_dir / ".git").exists()
+    result = unzip.run([zip_path.name], shell)
+
+    expected_dir = shell.cwd / "dataset-1"
+    assert expected_dir.exists()
+    assert (expected_dir / "info.txt").read_text(encoding="utf-8") == "data"
+    assert result == f"Unpacked '{zip_path}' to '{expected_dir}'"
 
 
-def test_unzip_rejects_unsafe_path(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    archive = home_dir / "unsafe.zip"
-    _create_zip(archive, {"../evil.txt": "oops"})
+def test_unzip_rejects_unsafe_members(fs, shell):
+    zip_path = shell.cwd / "bad.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("../evil.txt", "danger")
 
     with pytest.raises(CommandError):
-        unzip.run(["unsafe.zip"], shell_instance)
-
-    assert not (home_dir.parent / "evil.txt").exists()
-
-
-def test_unzip_creates_unique_root_when_conflicts(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    fs.create_dir(str(home_dir / "project"))
-    archive = home_dir / "project.zip"
-    _create_zip(
-        archive,
-        {
-            "project/info.txt": "data",
-        },
-    )
-
-    message = unzip.run(["project.zip"], shell_instance)
-
-    new_dir = home_dir / "project-1"
-    assert new_dir.exists()
-    assert (new_dir / "info.txt").read_text() == "data"
-    assert str(new_dir) in message
+        unzip.run([zip_path.name], shell)

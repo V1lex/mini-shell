@@ -1,51 +1,40 @@
 import zipfile
-from pathlib import Path
 
 import pytest
-from pyfakefs.fake_filesystem import FakeFilesystem
 
 from src.commands import zip
 from src.commands.utils import CommandError
 
 
-def _zip_entries(archive: Path) -> set[str]:
-    with zipfile.ZipFile(archive, "r") as zf:
-        return set(zf.namelist())
-
-
-def test_zip_creates_archive_excluding_git(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    source = home_dir / "src"
+def test_zip_creates_archive_without_git(fs, shell):
+    source = shell.cwd / "project"
     fs.create_dir(str(source))
-    fs.create_file(str(source / "main.py"), contents="print('ok')")
-    git_dir = source / ".git"
-    fs.create_dir(str(git_dir))
-    fs.create_file(str(git_dir / "config"), contents="[core]")
+    fs.create_file(str(source / "app.py"), contents="print('ok')")
+    fs.create_dir(str(source / ".git"))
+    fs.create_file(str(source / ".git" / "config"), contents="secret")
 
-    archive = home_dir / "src.zip"
-    message = zip.run(["src", "src.zip"], shell_instance)
+    archive_name = "project.zip"
+    message = zip.run([source.name, archive_name], shell)
 
-    assert "Created archive" in message
-    assert archive.exists()
-    entries = _zip_entries(archive)
-    assert "src/main.py" in entries
-    assert all(".git" not in name for name in entries)
+    archive_path = shell.cwd / archive_name
+    assert archive_path.exists()
+    assert message == f"Created archive '{archive_path}'"
+
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        names = zf.namelist()
+
+    assert "project/app.py" in names
+    assert all(".git" not in name for name in names)
 
 
-def test_zip_requires_existing_directory(shell_instance) -> None:
+def test_zip_requires_existing_directory(shell):
     with pytest.raises(CommandError):
-        zip.run(["missing", "archive.zip"], shell_instance)
+        zip.run(["missing", "output.zip"], shell)
 
 
-def test_zip_rejects_non_directory_source(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    fs.create_file(str(home_dir / "file.txt"), contents="data")
+def test_zip_rejects_non_directory(fs, shell):
+    file_path = shell.cwd / "file.txt"
+    fs.create_file(str(file_path), contents="data")
 
     with pytest.raises(CommandError):
-        zip.run(["file.txt", "archive.zip"], shell_instance)
+        zip.run([file_path.name, "file.zip"], shell)

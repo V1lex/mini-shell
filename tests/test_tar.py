@@ -1,51 +1,40 @@
 import tarfile
-from pathlib import Path
 
 import pytest
-from pyfakefs.fake_filesystem import FakeFilesystem
 
 from src.commands import tar
 from src.commands.utils import CommandError
 
 
-def _list_tar_members(archive: Path) -> set[str]:
-    with tarfile.open(archive, "r:gz") as tf:
-        return set(tf.getnames())
-
-
-def test_tar_creates_archive_excluding_git(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    source = home_dir / "project"
+def test_tar_creates_archive_without_git(fs, shell):
+    source = shell.cwd / "docs"
     fs.create_dir(str(source))
-    fs.create_file(str(source / "file.txt"), contents="data")
-    git_dir = source / ".git"
-    fs.create_dir(str(git_dir))
-    fs.create_file(str(git_dir / "config"), contents="[core]")
+    fs.create_file(str(source / "readme.txt"), contents="hello")
+    fs.create_dir(str(source / ".git"))
+    fs.create_file(str(source / ".git" / "config"), contents="[core]")
 
-    archive = home_dir / "project.tar.gz"
-    message = tar.run(["project", "project.tar.gz"], shell_instance)
+    archive_name = "docs.tar.gz"
+    message = tar.run([source.name, archive_name], shell)
 
-    assert "Created archive" in message
-    assert archive.exists()
-    members = _list_tar_members(archive)
-    assert "project/file.txt" in members
-    assert all(".git" not in name for name in members)
+    archive_path = shell.cwd / archive_name
+    assert archive_path.exists()
+    assert message == f"Created archive '{archive_path}'"
+
+    with tarfile.open(archive_path, "r:gz") as tf:
+        names = tf.getnames()
+
+    assert f"{source.name}/readme.txt" in names
+    assert all(".git" not in name for name in names)
 
 
-def test_tar_requires_existing_directory(shell_instance) -> None:
+def test_tar_requires_existing_directory(shell):
     with pytest.raises(CommandError):
-        tar.run(["missing", "archive.tar.gz"], shell_instance)
+        tar.run(["missing", "output.tar.gz"], shell)
 
 
-def test_tar_rejects_non_directory_source(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    fs.create_file(str(home_dir / "file.txt"), contents="data")
+def test_tar_rejects_non_directory(fs, shell):
+    file_path = shell.cwd / "data.txt"
+    fs.create_file(str(file_path), contents="value")
 
     with pytest.raises(CommandError):
-        tar.run(["file.txt", "archive.tar.gz"], shell_instance)
+        tar.run([file_path.name, "data.tar.gz"], shell)

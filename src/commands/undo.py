@@ -7,7 +7,7 @@ from .utils import CommandError
 logger = logging.getLogger("shell")
 
 
-def run(args: list[str], shell: "Shell") -> str:
+def run(args: list[str], shell) -> str:
     """Отменяет последнее действие из поддерживаемого списка (cp/mv/rm)."""
     if args:
         raise CommandError("undo: this command does not accept arguments")
@@ -25,15 +25,15 @@ def run(args: list[str], shell: "Shell") -> str:
         if kind == "rm":
             return _undo_remove(action)
         raise CommandError(f"undo: unsupported action '{kind}'")
-    except CommandError:
+    except CommandError as error:
         shell.push_undo(action)
-        raise
+        raise error
     except Exception as error:
         shell.push_undo(action)
         raise CommandError(f"undo: unexpected failure: {error}") from error
 
 
-def _undo_copy(action: dict[str, object]) -> str:
+def _undo_copy(action: dict[str, str]) -> str:
     """Удаляет файл или каталог, созданный командой cp."""
     target = Path(action["target"])
     if not target.exists():
@@ -46,7 +46,7 @@ def _undo_copy(action: dict[str, object]) -> str:
     return f"Undo: removed '{target}'"
 
 
-def _undo_move(action: dict[str, object]) -> str:
+def _undo_move(action: dict[str, str]) -> str:
     """Возвращает файл или каталог на исходное место после mv."""
     source = Path(action["source"])
     destination = Path(action["destination"])
@@ -58,7 +58,7 @@ def _undo_move(action: dict[str, object]) -> str:
     return f"Undo: moved back to '{source}'"
 
 
-def _undo_remove(action: dict[str, object]) -> str:
+def _undo_remove(action: dict[str, str]) -> str:
     """Восстанавливает файл или каталог из корзины после rm."""
     original = Path(action["original"])
     trash_path = Path(action["trash"])

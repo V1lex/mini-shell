@@ -5,4 +5,14 @@ description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
     "pytest>=8.4.2",
+    "pytest-cov>=4.1.0",
+    "pyfakefs>=5.5.0",
+    "typer>=0.12.3",
 ]
+
+[tool.pytest.ini_options]
+addopts = "--cov=src --cov-report=term-missing"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

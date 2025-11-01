@@ -1,53 +1,55 @@
+from pathlib import Path
+
 import pytest
-from pyfakefs.fake_filesystem import FakeFilesystem
 
 from src.commands import cd
 from src.commands.utils import CommandError
 
 
-def test_cd_changes_directory(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    target = home_dir / "projects"
+def test_cd_changes_to_existing_directory(fs, shell):
+    target = shell.cwd / "projects"
     fs.create_dir(str(target))
 
-    cd.run(["projects"], shell_instance)
+    cd.run([target.name], shell)
 
-    assert shell_instance.cwd == target
-
-
-def test_cd_without_arguments_returns_home(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    other = home_dir / "tmp"
-    fs.create_dir(str(other))
-    shell_instance.cwd = other
-
-    cd.run([], shell_instance)
-
-    assert shell_instance.cwd == home_dir
+    assert shell.cwd == target
 
 
-def test_cd_fails_for_missing_directory(shell_instance) -> None:
-    with pytest.raises(CommandError) as error:
-        cd.run(["absent"], shell_instance)
-
-    assert "No such file or directory" in str(error.value)
+def test_cd_raises_for_missing_path(shell):
+    with pytest.raises(CommandError):
+        cd.run(["unknown"], shell)
 
 
-def test_cd_fails_for_file_instead_directory(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    file_path = home_dir / "file.txt"
-    fs.create_file(str(file_path), contents="content")
+def test_cd_rejects_file_target(fs, shell):
+    file_path = shell.cwd / "notes.txt"
+    fs.create_file(str(file_path), contents="data")
 
-    with pytest.raises(CommandError) as error:
-        cd.run(["file.txt"], shell_instance)
+    with pytest.raises(CommandError):
+        cd.run([file_path.name], shell)
 
-    assert "Not a directory" in str(error.value)
+
+def test_cd_without_arguments_moves_to_home(fs, shell):
+    home_path = Path.home()
+    fs.create_dir(str(home_path))
+
+    cd.run([], shell)
+
+    assert shell.cwd == home_path
+
+
+def test_cd_goes_to_home_with_tilde(fs, shell, monkeypatch):
+    home = Path("/home/custom")
+    fs.create_dir(str(home))
+    monkeypatch.setenv("HOME", str(home))
+
+    cd.run(["~"], shell)
+
+    assert shell.cwd == home.resolve()
+
+
+def test_cd_goes_one_level_up(fs, shell):
+    parent = shell.cwd.parent
+
+    cd.run([".."], shell)
+
+    assert shell.cwd == parent

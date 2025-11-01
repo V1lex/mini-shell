@@ -25,7 +25,7 @@ from src.logger_config import setup_logger
 
 
 class Shell:
-    """Мини-оболочка со встроенными командами и поддержкой плагинов."""
+    """Мини-оболочка со встроенными командами."""
 
     def __init__(self) -> None:
         """Инициализирует состояние оболочки и регистрирует команды."""
@@ -36,13 +36,11 @@ class Shell:
         self.history_file.touch(exist_ok=True)
         self.trash_dir = Path(config.TRASH_DIR)
         self.trash_dir.mkdir(parents=True, exist_ok=True)
-        self.undo_stack: list[dict[str, object]] = []
+        self.undo_stack: list[dict[str, str]] = []
 
         self._register_builtin_commands()
         self._register_internal_commands()
-        self._load_plugins()
 
-    # region регистрация команд
     def register_command(self, name: str, handler) -> None:
         """Регистрирует функцию-обработчик под указанным именем команды."""
         self.commands[name] = handler
@@ -76,31 +74,6 @@ class Shell:
         self.register_command("help", self.help_command)
         self.register_command("exit", self.exit_command)
 
-    def _load_plugins(self) -> None:
-        """Подгружает пользовательские плагины из каталога plugins."""
-        plugins_dir = Path(config.PLUGINS_DIR)
-        if not plugins_dir.exists():
-            return
-        for plugin_path in sorted(plugins_dir.glob("*.py")):
-            if plugin_path.name.startswith("_"):
-                continue
-            try:
-                code = plugin_path.read_text(encoding="utf-8")
-            except OSError as error:
-                self.logger.error(
-                    f"ERROR: failed to read plugin {plugin_path}: {error}")
-                continue
-            namespace = {"__name__": plugin_path.stem}
-            try:
-                exec(compile(code, str(plugin_path), "exec"), namespace)
-            except Exception as error:
-                self.logger.error(
-                    f"ERROR: failed to load plugin {plugin_path}: {error}")
-                continue
-            register = namespace.get("register")
-            if callable(register):
-                register(self)
-
     def record_history(self, command_line: str) -> None:
         """Сохраняет введённую строку команды в файл истории."""
         with self.history_file.open("a", encoding="utf-8") as file:
@@ -113,11 +86,11 @@ class Shell:
             return lines
         return lines[-limit:]
 
-    def push_undo(self, action: dict) -> None:
+    def push_undo(self, action: dict[str, str]) -> None:
         """Добавляет обратимое действие в стек undo."""
         self.undo_stack.append(action)
 
-    def pop_undo(self) -> dict[str, object] | None:
+    def pop_undo(self) -> dict[str, str] | None:
         """Извлекает последнее обратимое действие."""
         if not self.undo_stack:
             return None
@@ -151,8 +124,8 @@ class Shell:
             message = str(error)
             self._echo_error(message)
             self.logger.error(f"ERROR: {message}")
-        except SystemExit:
-            raise
+        except SystemExit as exit_error:
+            raise exit_error
         except Exception as error:
             message = f"Unexpected error: {error}"
             self._echo_error(message)

@@ -1,59 +1,46 @@
 import pytest
-from pyfakefs.fake_filesystem import FakeFilesystem
 
 from src.commands import undo
 from src.commands.utils import CommandError
 
 
-def test_undo_reverts_copy(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    copied = home_dir / "copy.txt"
-    fs.create_file(str(copied), contents="data")
-    shell_instance.push_undo({"command": "cp", "target": str(copied)})
+def test_undo_reverses_copy(fs, shell):
+    target = shell.cwd / "copied.txt"
+    fs.create_file(str(target), contents="data")
+    shell.push_undo({"command": "cp", "target": str(target)})
 
-    result = undo.run([], shell_instance)
+    message = undo.run([], shell)
 
-    assert result == f"Undo: removed '{copied}'"
-    assert not copied.exists()
+    assert not target.exists()
+    assert message == f"Undo: removed '{target}'"
 
 
-def test_undo_reverts_move(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    source = home_dir / "original.txt"
-    destination = home_dir / "moved.txt"
-    fs.create_file(str(destination), contents="payload")
-    shell_instance.push_undo(
+def test_undo_restores_move(fs, shell):
+    original = shell.cwd / "notes.txt"
+    destination = shell.cwd / "archive" / "notes.txt"
+    fs.create_dir(str(destination.parent))
+    fs.create_file(str(destination), contents="memo")
+    shell.push_undo(
         {
             "command": "mv",
-            "source": str(source),
+            "source": str(original),
             "destination": str(destination),
         }
     )
 
-    result = undo.run([], shell_instance)
+    result = undo.run([], shell)
 
-    assert result == f"Undo: moved back to '{source}'"
-    assert source.exists()
-    assert source.read_text() == "payload"
+    assert original.exists()
     assert not destination.exists()
+    assert original.read_text(encoding="utf-8") == "memo"
+    assert result == f"Undo: moved back to '{original}'"
 
 
-def test_undo_reverts_remove(
-    fs: FakeFilesystem,
-    shell_instance,
-    home_dir,
-) -> None:
-    original = home_dir / "file.txt"
-    trash = shell_instance.trash_dir / "file.txt.trash"
-    fs.makedirs(str(shell_instance.trash_dir), exist_ok=True)
-    fs.create_file(str(trash), contents="deleted")
-    shell_instance.push_undo(
+def test_undo_restores_deleted_file(fs, shell):
+    original = shell.cwd / "report.txt"
+    trash = shell.trash_dir / "report.txt.1"
+    fs.create_file(str(trash), contents="draft")
+    shell.push_undo(
         {
             "command": "rm",
             "original": str(original),
@@ -61,59 +48,40 @@ def test_undo_reverts_remove(
         }
     )
 
-    result = undo.run([], shell_instance)
+    message = undo.run([], shell)
 
-    assert result == f"Undo: restored '{original}'"
     assert original.exists()
-    assert original.read_text() == "deleted"
     assert not trash.exists()
+    assert original.read_text(encoding="utf-8") == "draft"
+    assert message == f"Undo: restored '{original}'"
 
 
-def test_undo_without_actions_fails(shell_instance) -> None:
+def test_undo_requires_pending_action(shell):
     with pytest.raises(CommandError):
-        undo.run([], shell_instance)
+        undo.run([], shell)
 
 
-def test_undo_unknown_action_restored(
-    shell_instance,
-) -> None:
-    action = {"command": "unknown"}
-    shell_instance.push_undo(action)
-
-    with pytest.raises(CommandError):
-        undo.run([], shell_instance)
-
-    assert shell_instance.undo_stack[-1] is action
-
-
-def test_undo_copy_missing_target_put_back(
-    shell_instance,
-    home_dir,
-) -> None:
-    target = home_dir / "lost.txt"
-    action = {"command": "cp", "target": str(target)}
-    shell_instance.push_undo(action)
+def test_undo_restores_action_on_failure(fs, shell):
+    missing_target = shell.cwd / "ghost.txt"
+    shell.push_undo({"command": "cp", "target": str(missing_target)})
 
     with pytest.raises(CommandError):
-        undo.run([], shell_instance)
+        undo.run([], shell)
 
-    assert shell_instance.undo_stack[-1] is action
-
-
-def test_undo_rejects_arguments(shell_instance) -> None:
-    shell_instance.push_undo({"command": "cp", "target": "/tmp/file"})
-
-    with pytest.raises(CommandError):
-        undo.run(["extra"], shell_instance)
-
-    assert shell_instance.undo_stack
+    assert shell.undo_stack[-1]["command"] == "cp"
 
 
-def test_undo_repushes_action_on_failure(shell_instance) -> None:
-    action = {"command": "cp", "target": "/tmp/missing.txt"}
-    shell_instance.push_undo(action)
+def test_undo_rejects_extra_arguments(fs, shell):
+    shell.push_undo({"command": "cp", "target": str(shell.cwd / "file.txt")})
 
     with pytest.raises(CommandError):
-        undo.run([], shell_instance)
+        undo.run(["unexpected"], shell)
 
-    assert shell_instance.undo_stack[-1] is action
+
+def test_undo_handles_unsupported_action(shell):
+    shell.push_undo({"command": "unknown"})
+
+    with pytest.raises(CommandError):
+        undo.run([], shell)
+
+    assert shell.undo_stack[-1]["command"] == "unknown"

@@ -7,7 +7,7 @@ from .utils import CommandError, resolve_path
 logger = logging.getLogger("shell")
 
 
-def run(args, shell) -> str:
+def run(args: list[str], shell) -> str:
     """Ищет строки, соответствующие шаблону, в файлах."""
     if not args:
         raise CommandError("Usage: grep [-r] [-i] <pattern> [path]")
@@ -16,7 +16,11 @@ def run(args, shell) -> str:
     ignore_case = False
     index = 0
 
-    while index < len(args) and args[index].startswith("-") and len(args[index]) > 1:
+    while (
+        index < len(args)
+        and args[index].startswith("-")
+        and len(args[index]) > 1
+    ):
         option = args[index][1:]
         for flag in option:
             if flag == "r":
@@ -59,17 +63,17 @@ def run(args, shell) -> str:
 
     files = _iter_files(target, recursive)
     matches = []
-    show_path = recursive or len(files) > 1 or target.is_dir()
 
     for file_path in files:
         try:
-            for line in file_path.read_text(encoding="utf-8").splitlines():
+            for lineno, line in enumerate(
+                file_path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
                 if pattern.search(line):
-                    if show_path:
-                        display_path = _format_path(file_path, shell.cwd, target, display_base)
-                        matches.append(f"{display_path}:{line}")
-                    else:
-                        matches.append(line)
+                    display_path = _format_path(
+                        file_path, shell.cwd, target, display_base
+                    )
+                    matches.append(f"{display_path} {lineno}:{line}")
         except Exception as error:
             logger.error(f"grep: failed to read {file_path}: {error}")
 
@@ -78,7 +82,7 @@ def run(args, shell) -> str:
     return "\n".join(matches)
 
 
-def _iter_files(path, recursive):
+def _iter_files(path: Path, recursive: bool) -> list[Path]:
     """Возвращает список файлов для поиска."""
     if path.is_file():
         return [path]
@@ -87,8 +91,13 @@ def _iter_files(path, recursive):
     return [p for p in path.rglob("*") if p.is_file()]
 
 
-def _format_path(file_path: Path, cwd: Path, target: Path, base_display: str) -> str:
-    """Возвращает путь к файлу, используя базовый аргумент или относительный путь."""
+def _format_path(
+    file_path: Path,
+    cwd: Path,
+    target: Path,
+    base_display: str,
+) -> str:
+    """Возвращает путь, учитывая базовый аргумент и относительные сегменты."""
     if not target.is_file():
         try:
             relative_to_target = file_path.relative_to(target).as_posix()
