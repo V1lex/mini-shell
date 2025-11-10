@@ -1,0 +1,17 @@
+.git
+.vscode/
+.idea/
+.DS_Store
+.github/
+
+__pycache__/
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+.venv
+venv
+
+.pre-commit-config.yaml
+
+node_modules/
