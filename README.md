@@ -72,3 +72,7 @@ python3 -m pytest
 ```
 
 Тесты используют `pyfakefs` для изоляции работы с файловой системой и проверяют ключевые сценарии архивирования и ошибок.
+
+## Docker image
+
+**Docker Hub:** https://hub.docker.com/r/v1lex/mini-shell
